@@ -2,8 +2,8 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>3D球形照片墙（支持视频）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>记录最坚强、美丽、可爱的你</title>
 <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body {
@@ -13,6 +13,7 @@
         overflow: hidden;
         background: #000;
         font-family: Arial, sans-serif;
+        touch-action: none;
     }
     #wrap {
         position: relative;
@@ -64,6 +65,40 @@
         color: rgba(255,255,255,0.95);
     }
     #musicBtn.off { opacity: 0.58; }
+
+    #zoomPanel {
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        z-index: 30;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 999px;
+        background: rgba(255,255,255,0.05);
+        backdrop-filter: blur(6px);
+        color: rgba(255,255,255,0.82);
+        user-select: none;
+    }
+    .zoomBtn {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        border: 1px solid rgba(255,255,255,0.16);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 18px;
+        line-height: 1;
+    }
+    #zoomText {
+        min-width: 44px;
+        text-align: center;
+        font-size: 12px;
+    }
 
     #sphere {
         position: absolute;
@@ -140,12 +175,8 @@
         display: none;
         background: #000;
     }
-    #viewerImg {
-        object-fit: contain;
-    }
-    #viewerVideo {
-        object-fit: contain;
-    }
+    #viewerImg { object-fit: contain; }
+    #viewerVideo { object-fit: contain; }
     #viewerClose {
         position: absolute;
         top: 12px;
@@ -168,6 +199,8 @@
     @media (max-width: 768px) {
         #hint { font-size: 12px; left: 14px; top: 14px; }
         #musicBtn { right: 14px; top: 14px; width: 40px; height: 40px; }
+        #zoomPanel { right: 14px; bottom: 14px; padding: 7px 9px; }
+        .zoomBtn { width: 28px; height: 28px; }
     }
 </style>
 </head>
@@ -176,12 +209,17 @@
     <canvas id="stars"></canvas>
 
     <div id="hint">
-        点击照片或视频封面可放大<br>
-        视频打开后会自动播放<br>
-        关闭视频后背景音乐继续播放
+        拖动可旋转<br>
+        滚轮或双指可缩放<br>
+        点击照片或视频封面可放大
     </div>
 
     <div id="musicBtn" title="音乐开关">♪</div>
+    <div id="zoomPanel">
+        <div class="zoomBtn" id="zoomOut">−</div>
+        <div id="zoomText">100%</div>
+        <div class="zoomBtn" id="zoomIn">＋</div>
+    </div>
     <div id="sphere"></div>
 </div>
 
@@ -204,9 +242,10 @@ const viewerVideo = document.getElementById("viewerVideo");
 const viewerClose = document.getElementById("viewerClose");
 const audio = document.getElementById("bgm");
 const musicBtn = document.getElementById("musicBtn");
+const zoomOutBtn = document.getElementById("zoomOut");
+const zoomInBtn = document.getElementById("zoomIn");
+const zoomText = document.getElementById("zoomText");
 
-// type: "image" 或 "video"
-// cover 是小图封面，src 是点击后打开的内容
 const mediaData = [
     { type: "image", cover: "picture/1.jpg", src: "picture/1.jpg" },
     { type: "video", cover: "img/video-cover-4.jpg", src: "video/4.mp4" },
@@ -221,17 +260,11 @@ const mediaData = [
     { type: "image", cover: "picture/6.jpg", src: "picture/6.jpg" },
     { type: "video", cover: "img/video-cover-3.jpg", src: "video/3.mp4" },
     { type: "image", cover: "picture/7.jpg", src: "picture/7.jpg" },
-    { type: "image", cover: "img/8.jpg", src: "img/8.jpg" },
     { type: "video", cover: "img/video-cover-5.jpg", src: "video/5.mp4" },
-    { type: "image", cover: "img/9.jpg", src: "img/9.jpg" },
     { type: "video", cover: "img/video-cover-11.jpg", src: "video/11.mp4" },
-    { type: "image", cover: "img/10.jpg", src: "img/10.jpg" },
     { type: "video", cover: "img/video-cover-6.jpg", src: "video/6.mp4" },
-    { type: "image", cover: "img/11.jpg", src: "img/11.jpg" },
     { type: "video", cover: "img/video-cover-7.jpg", src: "video/7.mp4" },
-    { type: "image", cover: "img/12.jpg", src: "img/12.jpg" },
-    { type: "video", cover: "img/video-cover-8.jpg", src: "video/8.mp4" },
-    { type: "image", cover: "img/13.jpg", src: "img/13.jpg" }
+    { type: "video", cover: "img/video-cover-8.jpg", src: "video/8.mp4" }
 ];
 
 const items = [];
@@ -297,8 +330,6 @@ function layoutSphere() {
         item.dataset.y = y;
         item.dataset.z = z;
         item.style.transform = `translate3d(${x}px, ${y}px, ${z}px)`;
-
-       // item.style.transform = `translate3d(${x}px, ${y}px, ${z}px) rotateY(${Math.atan2(x, z)}rad)`;
     });
 }
 layoutSphere();
@@ -312,14 +343,40 @@ let lastY = 0;
 let velocityX = 0.025;
 let velocityY = 0.10;
 
+let zoom = window.innerWidth < 768 ? 0.78 : 1;
+const minZoom = 0.5;
+const maxZoom = 1.8;
+const zoomStep = 0.08;
+
+let pinchZooming = false;
+let pinchStartDistance = 0;
+let pinchStartZoom = zoom;
+
+function updateZoomText() {
+    zoomText.textContent = `${Math.round(zoom * 100)}%`;
+}
+updateZoomText();
+
+function setZoom(nextZoom) {
+    zoom = clamp(nextZoom, minZoom, maxZoom);
+    updateZoomText();
+}
+
+function getTouchDistance(t1, t2) {
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.hypot(dx, dy);
+}
+
 function renderSphere() {
-    if (autoRotate && !dragging && !viewer.classList.contains("active")) {
+    if (autoRotate && !dragging && !viewer.classList.contains("active") && !pinchZooming) {
         rotY += velocityY;
         rotX += velocityX;
     }
 
     sphere.style.transform = `
         translate(-50%, -50%)
+        scale(${zoom})
         rotateX(${rotX}deg)
         rotateY(${rotY}deg)
     `;
@@ -340,7 +397,25 @@ function renderSphere() {
 }
 renderSphere();
 
+wrap.addEventListener("wheel", (e) => {
+    if (viewer.classList.contains("active")) return;
+    e.preventDefault();
+    const direction = e.deltaY > 0 ? -1 : 1;
+    setZoom(zoom + direction * zoomStep);
+}, { passive: false });
+
+zoomOutBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setZoom(zoom - zoomStep);
+});
+
+zoomInBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setZoom(zoom + zoomStep);
+});
+
 wrap.addEventListener("mousedown", (e) => {
+    if (viewer.classList.contains("active")) return;
     dragging = true;
     lastX = e.clientX;
     lastY = e.clientY;
@@ -357,12 +432,38 @@ window.addEventListener("mousemove", (e) => {
 window.addEventListener("mouseup", () => dragging = false);
 
 wrap.addEventListener("touchstart", (e) => {
+    if (viewer.classList.contains("active")) return;
+
+    if (e.touches.length === 2) {
+        pinchZooming = true;
+        dragging = false;
+        pinchStartDistance = getTouchDistance(e.touches[0], e.touches[1]);
+        pinchStartZoom = zoom;
+        return;
+    }
+
     if (e.touches.length !== 1) return;
     dragging = true;
     lastX = e.touches[0].clientX;
     lastY = e.touches[0].clientY;
 }, { passive: true });
+
 wrap.addEventListener("touchmove", (e) => {
+    if (viewer.classList.contains("active")) return;
+
+    if (e.touches.length === 2) {
+        const newDistance = getTouchDistance(e.touches[0], e.touches[1]);
+        if (!pinchStartDistance) {
+            pinchStartDistance = newDistance;
+            pinchStartZoom = zoom;
+        }
+        const ratio = newDistance / pinchStartDistance;
+        setZoom(pinchStartZoom * ratio);
+        pinchZooming = true;
+        dragging = false;
+        return;
+    }
+
     if (!dragging || e.touches.length !== 1) return;
     const x = e.touches[0].clientX;
     const y = e.touches[0].clientY;
@@ -373,7 +474,14 @@ wrap.addEventListener("touchmove", (e) => {
     lastX = x;
     lastY = y;
 }, { passive: true });
-wrap.addEventListener("touchend", () => dragging = false);
+
+wrap.addEventListener("touchend", (e) => {
+    if (e.touches.length < 2) {
+        pinchZooming = false;
+        pinchStartDistance = 0;
+    }
+    if (e.touches.length === 0) dragging = false;
+}, { passive: true });
 
 wrap.addEventListener("dblclick", (e) => {
     if (e.target.classList.contains("item")) return;
@@ -464,6 +572,10 @@ function resizeCanvas() {
     canvas.height = window.innerHeight;
     createStars();
     layoutSphere();
+
+    if (window.innerWidth < 768 && zoom > 1.2) {
+        setZoom(1.2);
+    }
 }
 
 function createStars() {
